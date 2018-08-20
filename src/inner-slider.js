@@ -4,6 +4,7 @@ import React from "react";
 import ReactDOM from "react-dom";
 import initialState from "./initial-state";
 import debounce from "lodash.debounce";
+import throttle from "lodash.throttle";
 import classnames from "classnames";
 import {
   getOnDemandLazySlides,
@@ -366,15 +367,21 @@ export class InnerSlider extends React.Component {
       }
     }
   };
-  slideHandler = (index, dontAnimate = false) => {
+  slideHandler = throttle((index, dontAnimate = false) => {
     const {
       asNavFor,
       currentSlide,
       beforeChange,
       onLazyLoad,
       speed,
-      afterChange
+      afterChange,
+      waitForAnimate
     } = this.props;
+
+    if (!dontAnimate && waitForAnimate && this.state.animating) {
+	    return;
+    }
+
     let { state, nextState } = slideHandler({
       index,
       ...this.props,
@@ -389,22 +396,28 @@ export class InnerSlider extends React.Component {
     );
     onLazyLoad && slidesToLoad.length > 0 && onLazyLoad(slidesToLoad);
     this.setState(state, () => {
-      asNavFor &&
-        asNavFor.innerSlider.state.currentSlide !== currentSlide &&
-        asNavFor.innerSlider.slideHandler(index);
-      if (!nextState) return;
-      this.animationEndCallback = setTimeout(() => {
-        const { animating, ...firstBatch } = nextState;
-        this.setState(firstBatch, () => {
-          this.callbackTimers.push(
-            setTimeout(() => this.setState({ animating }), 10)
-          );
-          afterChange && afterChange(state.currentSlide);
-          delete this.animationEndCallback;
-        });
-      }, speed);
+      setTimeout(() => {
+        asNavFor &&
+          asNavFor.innerSlider.state.currentSlide !== currentSlide &&
+          asNavFor.innerSlider.slideHandler(index);
+        if (!nextState) return;
+
+        this.animationEndCallback = setTimeout(() => {
+          const { animating, ...firstBatch } = nextState;
+          this.setState(firstBatch, () => {
+            this.callbackTimers.push(
+              setTimeout(() => {
+                this.setState({ animating })
+              }, 10)
+            );
+            afterChange && afterChange(state.currentSlide);
+            delete this.animationEndCallback;
+          });
+        }, speed);
+      }, 10)
     });
-  };
+  }, 500);
+
   changeSlide = (options, dontAnimate = false) => {
     const spec = { ...this.props, ...this.state };
     let targetSlide = changeSlide(spec, options);
@@ -483,14 +496,18 @@ export class InnerSlider extends React.Component {
     // this and fellow methods are wrapped in setTimeout
     // to make sure initialize setState has happened before
     // any of such methods are called
-    this.callbackTimers.push(
-      setTimeout(() => this.changeSlide({ message: "previous" }), 0)
-    );
+    if(!this.props.waitForAnimate || !this.state.animating) {
+      this.callbackTimers.push(
+        setTimeout(() => this.changeSlide({ message: "previous" }), 0)
+      );
+    }
   };
   slickNext = () => {
-    this.callbackTimers.push(
-      setTimeout(() => this.changeSlide({ message: "next" }), 0)
-    );
+    if(!this.props.waitForAnimate || !this.state.animating) {
+      this.callbackTimers.push(
+        setTimeout(() => this.changeSlide({ message: "next" }), 0)
+      );
+    }
   };
   slickGoTo = (slide, dontAnimate = false) => {
     slide = Number(slide);
